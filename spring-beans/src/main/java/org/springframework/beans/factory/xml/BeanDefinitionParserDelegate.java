@@ -416,12 +416,16 @@ public class BeanDefinitionParserDelegate {
 		String nameAttr = ele.getAttribute(NAME_ATTRIBUTE);
 
 		List<String> aliases = new ArrayList<>();
+		// 将 name 属性的定义按照 “逗号、分号、空格” 切分，形成一个 别名列表数组，
+		// 当然，如果你不定义 name 属性的话，就是空的了
+		// 我在附录中简单介绍了一下 id 和 name 的配置，大家可以看一眼，有个20秒就可以了
 		if (StringUtils.hasLength(nameAttr)) {
 			String[] nameArr = StringUtils.tokenizeToStringArray(nameAttr, MULTI_VALUE_ATTRIBUTE_DELIMITERS);
 			aliases.addAll(Arrays.asList(nameArr));
 		}
 
 		String beanName = id;
+		// 如果没有指定id, 那么用别名列表的第一个名字作为beanName
 		if (!StringUtils.hasText(beanName) && !aliases.isEmpty()) {
 			beanName = aliases.remove(0);
 			if (logger.isTraceEnabled()) {
@@ -434,14 +438,23 @@ public class BeanDefinitionParserDelegate {
 			checkNameUniqueness(beanName, aliases, ele);
 		}
 
+		// 根据 <bean ...>...</bean> 中的配置创建 BeanDefinition，然后把配置中的信息都设置到实例中,
+		// 细节后面细说，先知道下面这行结束后，一个 BeanDefinition 实例就出来了。
 		AbstractBeanDefinition beanDefinition = parseBeanDefinitionElement(ele, beanName, containingBean);
+		// 到这里，整个 <bean /> 标签就算解析结束了，一个 BeanDefinition 就形成了。
 		if (beanDefinition != null) {
+			// 如果都没有设置 id 和 name，那么此时的 beanName 就会为 null，进入下面这块代码产生
+			// 如果读者不感兴趣的话，我觉得不需要关心这块代码，对本文源码分析来说，这些东西不重要
 			if (!StringUtils.hasText(beanName)) {
 				try {
 					if (containingBean != null) {
 						beanName = BeanDefinitionReaderUtils.generateBeanName(
 								beanDefinition, this.readerContext.getRegistry(), true);
 					}
+
+					// 如果我们不定义 id 和 name，那么我们引言里的那个例子：
+					//   1. beanName 为：com.javadoop.example.MessageServiceImpl#0
+					//   2. beanClassName 为：com.javadoop.example.MessageServiceImpl
 					else {
 						beanName = this.readerContext.generateBeanName(beanDefinition);
 						// Register an alias for the plain bean class name, if still possible,
@@ -451,6 +464,7 @@ public class BeanDefinitionParserDelegate {
 						if (beanClassName != null &&
 								beanName.startsWith(beanClassName) && beanName.length() > beanClassName.length() &&
 								!this.readerContext.getRegistry().isBeanNameInUse(beanClassName)) {
+							// 把 beanClassName 设置为 Bean 的别名
 							aliases.add(beanClassName);
 						}
 					}
@@ -512,17 +526,31 @@ public class BeanDefinitionParserDelegate {
 		}
 
 		try {
+
+			// 创建 BeanDefinition，然后设置类信息而已，很简单，就不贴代码了
 			AbstractBeanDefinition bd = createBeanDefinition(className, parent);
 
+			// 设置 BeanDefinition 的一堆属性，这些属性定义在 AbstractBeanDefinition 中
 			parseBeanDefinitionAttributes(ele, beanName, containingBean, bd);
 			bd.setDescription(DomUtils.getChildElementValueByTagName(ele, DESCRIPTION_ELEMENT));
 
+			/**
+			 * 下面的一堆是解析 <bean>......</bean> 内部的子元素，
+			 * 解析出来以后的信息都放到 bd 的属性中
+			 */
+
+			// 解析 <meta />
 			parseMetaElements(ele, bd);
+			// 解析 <lookup-method />
 			parseLookupOverrideSubElements(ele, bd.getMethodOverrides());
+			// 解析 <replaced-method />
 			parseReplacedMethodSubElements(ele, bd.getMethodOverrides());
 
+			// 解析 <constructor-arg />
 			parseConstructorArgElements(ele, bd);
+			// 解析 <property />
 			parsePropertyElements(ele, bd);
+			// 解析 <qualifier />
 			parseQualifierElements(ele, bd);
 
 			bd.setResource(this.readerContext.getResource());
@@ -1365,6 +1393,36 @@ public class BeanDefinitionParserDelegate {
 	 * Parse a custom element (outside of the default namespace).
 	 * @param ele the element to parse
 	 * @return the resulting bean definition
+	 */
+
+	/**
+	 *而对于其他的标签，将进入到 delegate.parseCustomElement(element) 这个分支。
+	 * 如我们经常会使用到的 <mvc />、<task />、<context />、<aop />等。
+	 *
+	 * 这些属于扩展，如果需要使用上面这些 ”非 default“ 标签，那么上面的 xml 头部的地方也要引入相应的 namespace 和 .xsd 文件的路径，
+	 * 如下所示。同时代码中需要提供相应的 parser 来解析，
+	 * 如 MvcNamespaceHandler、TaskNamespaceHandler、ContextNamespaceHandler、AopNamespaceHandler 等。
+	 *
+	 *  假如读者想分析 <context:property-placeholder location="classpath:xx.properties" /> 的实现原理，
+	 *  就应该到 ContextNamespaceHandler 中找答案。
+	 *
+	 *  <beans xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	 *       xmlns="http://www.springframework.org/schema/beans"
+	 *       xmlns:context="http://www.springframework.org/schema/context"
+	 *       xmlns:mvc="http://www.springframework.org/schema/mvc"
+	 *       xsi:schemaLocation="
+	 *            http://www.springframework.org/schema/beans
+	 *            http://www.springframework.org/schema/beans/spring-beans.xsd
+	 *            http://www.springframework.org/schema/context
+	 *            http://www.springframework.org/schema/context/spring-context.xsd
+	 *            http://www.springframework.org/schema/mvc
+	 *            http://www.springframework.org/schema/mvc/spring-mvc.xsd
+	 *        "
+	 *       default-autowire="byName">
+	 *
+	 *  同理，以后你要是碰到 <dubbo /> 这种标签，那么就应该搜一搜是不是有 DubboNamespaceHandler 这个处理类。
+	 *
+	 *
 	 */
 	@Nullable
 	public BeanDefinition parseCustomElement(Element ele) {
